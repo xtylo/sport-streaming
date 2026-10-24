@@ -1,8 +1,53 @@
 {
-  "name": "Java Dev Container",
-  "dockerFile": "Dockerfile",
-  "extensions": ["vscjava.vscode-java-pack"],
-  "settings": {
-    "java.home": "/usr/local/openjdk-11"
-  }
+  "name": "sport-streaming (Java 21)",
+  "image": "mcr.microsoft.com/devcontainers/java:21",
+
+  "features": {
+    "ghcr.io/devcontainers/features/java:1": {
+      "version": "none",
+      "installMaven": "true"
+    },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "moby": false
+    },
+    "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
+      "minikube": "none"
+    },
+    "ghcr.io/devcontainers-extra/features/kind:1": {},
+    "ghcr.io/devcontainers/features/terraform:1": {},
+    "ghcr.io/devcontainers/features/aws-cli:1": {}
+  },
+
+  "mounts": [
+    "source=sport-streaming-m2,target=/home/vscode/.m2,type=volume"
+  ],
+
+  "forwardPorts": [8080, 3000, 9092],
+  "portsAttributes": {
+    "8080": { "label": "streaming-service" },
+    "3000": { "label": "Grafana" },
+    "9092": { "label": "Kafka" }
+  },
+
+  "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.m2 && java -version && mvn -v && docker --version && kubectl version --client && kind version && terraform -version && aws --version",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "vscjava.vscode-java-pack",
+        "vmware.vscode-boot-dev-pack",
+        "hashicorp.terraform",
+        "ms-kubernetes-tools.vscode-kubernetes-tools",
+        "ms-azuretools.vscode-containers",
+        "redhat.vscode-yaml"
+      ],
+      "settings": {
+        "java.configuration.updateBuildConfiguration": "automatic",
+        "java.compile.nullAnalysis.mode": "automatic",
+        "files.eol": "\n"
+      }
+    }
+  },
+
+  "remoteUser": "vscode"
 }

@@ -1,18 +1,23 @@
-// Servicio principal que maneja la lógica de streaming de eventos deportivos.
+package com.streaming;
 
+import org.springframework.stereotype.Service;
+
+// Core service that handles the live sports event streaming logic.
+@Service
 public class StreamingService {
-    // Constructor y configuración del servicio
+
+    // Service constructor and configuration
     public StreamingService() {
-        // Inicialización de componentes
+        // Component initialization
     }
 
-    // Método para iniciar el streaming
+    // Starts streaming
     public void startStreaming() {
-        // Lógica para comenzar el streaming
+        // Logic to start streaming
     }
 
-    // Método para manejar eventos de Kafka
+    // Handles events received from Kafka
     public void onEventReceived(String event) {
-        // Procesar evento recibido
+        // Process the received event
     }
 }
