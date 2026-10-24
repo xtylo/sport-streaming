@@ -1,0 +1,8 @@
+{
+  "name": "Java Dev Container",
+  "dockerFile": "Dockerfile",
+  "extensions": ["vscjava.vscode-java-pack"],
+  "settings": {
+    "java.home": "/usr/local/openjdk-11"
+  }
+}
