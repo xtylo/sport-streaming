@@ -16,8 +16,8 @@ In 8 hours the goal is a **working, observable, load-tested vertical slice** tha
 
 ### Definition of Done (end of Day 8)
 
-- [ ] Spring Boot service that **ingests** match events (REST → Kafka) and **delivers** them to clients (Kafka → SSE + snapshot endpoint).
-- [ ] Unit tests + one Kafka integration test (Testcontainers) passing in CI-ready form (`mvn verify`).
+- [x] Spring Boot service that **ingests** match events (REST → Kafka) and **delivers** them to clients (Kafka → SSE + snapshot endpoint).
+- [x] Unit tests + one Kafka integration test (Testcontainers) passing in CI-ready form (`mvn verify`).
 - [ ] Traces, metrics and logs visible in Grafana via OpenTelemetry.
 - [ ] Runs locally with `docker compose up` and on a local Kubernetes cluster (kind) with HPA.
 - [ ] k6 load test executed with **measured** p95/p99, error rate and saturation point recorded in the README.
@@ -57,7 +57,7 @@ In 8 hours the goal is a **working, observable, load-tested vertical slice** tha
 ### Design decisions (short ADRs, recorded in `docs/adr/` as you go)
 
 1. **SSE over WebSockets** — one-way server→client push, plain HTTP, works through ALB, trivial to load-test.
-2. **Each pod uses its own consumer group** for the fan-out consumer, so every pod sees every event and can push it to its own connected clients. (Classic competing consumers would split events across pods — wrong for broadcast.)
+2. **Each pod uses its own consumer group** for the fan-out consumer, so every pod sees every event and can push it to its own connected clients. (Classic competing consumers would split events across pods — wrong for broadcast.) *Implemented as a random group id per startup + `auto.offset.reset=earliest`, so a restarted pod replays the topic and rebuilds its in-memory state — see `docs/adr/0001`.*
 3. **Kafka key = `matchId`** — ordering guaranteed per match; partitions give producer/broker parallelism.
 4. **ELB + API Gateway from the original diagram is simplified to a single ALB.** API Gateway in front of EKS adds latency and cost without adding value for this slice; mention it as a future auth/rate-limit layer.
 5. **Kafka runs in-cluster (single broker, KRaft) for the cloud demo**; Amazon MSK is documented in Terraform as an optional stretch (it takes 20–30 min to provision and is expensive for a 1-hour session).
@@ -198,7 +198,7 @@ If a day overruns, cut the item marked *(stretch)* — never the commit.
 
 **Done when:** posting an event shows up instantly in an open `curl -N` SSE session; tests green.
 **Learn:** Spring MVC, `SseEmitter`, JUnit 5/AssertJ, `@WebMvcTest`.
-*(stretch)* enable virtual threads: `spring.threads.virtual.enabled=true`.
+*(stretch)* enable virtual threads: `spring.threads.virtual.enabled=true`. → *Moved to Day 6 so it can be measured with k6.*
 
 ---
 
@@ -210,9 +210,9 @@ If a day overruns, cut the item marked *(stretch)* — never the commit.
 | --- | --- |
 | 0–10 | Rewrite `docker-compose.yml`: `kafka` service using `apache/kafka` (KRaft, single node, ports 9092), remove `version:`. Keep LocalStack commented out as optional. |
 | 10–25 | `MatchEventProducer` with `KafkaTemplate<String, MatchEvent>` (JSON serializer, key = `matchId`). `EventController` now publishes instead of calling the service. Topic bean: `match-events`, 6 partitions. |
-| 25–35 | `MatchEventConsumer` with `@KafkaListener(topics = "match-events", groupId = "streaming-${HOSTNAME:local}")` → `streamingService.onEventReceived(...)` (unique group per pod = broadcast, see ADR 0001). |
+| 25–35 | `MatchEventConsumer` with `@KafkaListener(topics = "match-events", groupId = "streaming-#{T(java.util.UUID).randomUUID()}")` → `streamingService.onEventReceived(...)` (unique group per instance = broadcast + state rebuilt on restart, see ADR 0001). |
 | 35–50 | `KafkaIntegrationTest` using Testcontainers Kafka + `@ServiceConnection`: POST an event, assert `GET /stream` reflects it (Awaitility). |
-| 50–60 | Producer tuning for latency: `acks=1`, `linger.ms=5`, `compression.type=lz4`; consumer `auto.offset.reset=latest`. Write ADR 0002 (keys/partitions). Commit. |
+| 50–60 | Producer tuning: `acks=all` (+ idempotence), `linger.ms=5`, `compression.type=lz4`, fail-fast timeouts (`max.block.ms`/`delivery.timeout.ms` = 5 s → `503`); consumer `auto.offset.reset=earliest`. Write ADR 0002 (keys/partitions/producer). Commit. |
 
 **Done when:** `docker compose up kafka` + app running → SSE receives events through Kafka; integration test green.
 **Learn:** Kafka topics/partitions/consumer groups, Spring Kafka, Testcontainers.
@@ -334,15 +334,30 @@ Local hardware will not reach 10,000 RPS; record what you actually measure and e
 | Laptop can't generate enough load | Measure per-pod capacity and extrapolate; run k6 from the cloud only if needed. |
 | Secrets in git | `.gitignore` for `*.tfstate*`, `tfplan`, `.env`, `.localstack/`; AWS creds only via CLI profile. |
 
+### Lessons learned (Days 1–3)
+
+| Problem | Symptom | Fix |
+| --- | --- | --- |
+| Docker Desktop **Resource Saver** | Engine stops after 5 min idle; Dev Containers hangs on "failed to connect to the docker API" | Settings → Resources → Advanced → disable Resource Saver; wake the engine with `docker desktop restart` |
+| `devcontainers/java:21` is based on **Debian trixie** | `docker-in-docker` feature fails: *moby not supported on trixie* | Feature option `"moby": false` (installs Docker CE) |
+| Docker Desktop **WSL integration** off | Container fails to start: *distro-services/ubuntu.sock: no such file* (VS Code mounts the Wayland socket from Ubuntu) | Settings → Resources → WSL integration → enable Ubuntu (or `dev.containers.mountWaylandSocket: false`) |
+| `JAVA_HOME` in WSL points to a Windows JDK | `mvnw`: *JAVA_HOME is not defined correctly* | Work inside the dev container (or install a Linux JDK in WSL) |
+| Files written by another Windows user | Maven: *Operation not permitted* copying resources | Recreate the files as your user; `mvn clean` |
+| `CLUSTER_ID` in compose | Kafka refuses to format storage | Must be a 22-char base64 UUID (`kafka-storage.sh random-uuid`) |
+| `docker compose down` | All events gone, empty snapshots | No volume for Kafka data: use `stop`/`start` to keep events |
+| Producer `max.block.ms` default (60 s) | `POST /events` hangs 60 s when Kafka is down | `max.block.ms=5000`, aligned with the send timeout |
+| `KafkaTemplate.send()` throws synchronously when the send already failed | `500` instead of `503` | Catch `KafkaException` (Spring and Apache) → `EventPublishException` → `503` + `Retry-After` |
+| `Ctrl+Z` in the terminal | App suspended, still holding port 8080 | Stop with `Ctrl+C`; clean up with `jobs` / `kill %N` |
+
 ---
 
 ## 8. Progress tracker
 
 | Day | Focus | Status | Notes |
 | --- | --- | --- | --- |
-| 1 | Bootstrap & scaffold fixes | ☐ | |
-| 2 | Domain, REST/SSE, unit tests | ☐ | |
-| 3 | Kafka producer/consumer + integration test | ☐ | |
+| 1 | Bootstrap & scaffold fixes | ✅ | Spring Boot 4.1.2 / Java 21; dev container fixed (see Lessons learned); README translated after Day 3. |
+| 2 | Domain, REST/SSE, unit tests | ✅ | `MatchEvent`/`MatchState` records, `StreamingService` (state + SSE + heartbeat), Problem Details; 26 tests. Virtual threads moved to Day 6 (measure before/after). |
+| 3 | Kafka producer/consumer + integration test | ✅ | Port/adapter publisher, fan-out consumer with state replay, poison-message skip, Testcontainers, fail-fast `503`; ADR 0001–0002; 33 tests. |
 | 4 | OpenTelemetry + Grafana | ☐ | |
 | 5 | Docker + kind + HPA | ☐ | |
 | 6 | k6 load test + tuning | ☐ | |

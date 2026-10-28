@@ -1,6 +1,7 @@
 package com.streaming.api;
 
 import com.streaming.StreamingService;
+import com.streaming.support.LoopbackMatchEventPublisher;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,11 +23,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * Web-layer slice test: starts only MVC (controllers, JSON, validation, exception handler)
- * plus the real StreamingService. No Tomcat, no Kafka.
+ * plus the real StreamingService. No Tomcat, no Kafka: the LoopbackMatchEventPublisher
+ * replaces Kafka and hands events straight to the service.
  * Each test uses its own matchId because the service (a singleton) is shared across tests.
  */
 @WebMvcTest(controllers = {EventController.class, StreamController.class})
-@Import(StreamingService.class)
+@Import({StreamingService.class, LoopbackMatchEventPublisher.class})
 class StreamingApiTest {
 
     @Autowired
