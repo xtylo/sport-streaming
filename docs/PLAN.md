@@ -18,7 +18,7 @@ In 8 hours the goal is a **working, observable, load-tested vertical slice** tha
 
 - [x] Spring Boot service that **ingests** match events (REST → Kafka) and **delivers** them to clients (Kafka → SSE + snapshot endpoint).
 - [x] Unit tests + one Kafka integration test (Testcontainers) passing in CI-ready form (`mvn verify`).
-- [ ] Traces, metrics and logs visible in Grafana via OpenTelemetry.
+- [x] Traces, metrics and logs visible in Grafana via OpenTelemetry.
 - [ ] Runs locally with `docker compose up` and on a local Kubernetes cluster (kind) with HPA.
 - [ ] k6 load test executed with **measured** p95/p99, error rate and saturation point recorded in the README.
 - [ ] Terraform for AWS (VPC + EKS + ECR) applied once, smoke-tested, and **destroyed** the same session.
@@ -334,7 +334,7 @@ Local hardware will not reach 10,000 RPS; record what you actually measure and e
 | Laptop can't generate enough load | Measure per-pod capacity and extrapolate; run k6 from the cloud only if needed. |
 | Secrets in git | `.gitignore` for `*.tfstate*`, `tfplan`, `.env`, `.localstack/`; AWS creds only via CLI profile. |
 
-### Lessons learned (Days 1–3)
+### Lessons learned (Days 1–4)
 
 | Problem | Symptom | Fix |
 | --- | --- | --- |
@@ -347,6 +347,10 @@ Local hardware will not reach 10,000 RPS; record what you actually measure and e
 | Producer `max.block.ms` default (60 s) | `POST /events` hangs 60 s when Kafka is down | `max.block.ms=5000`, aligned with the send timeout |
 | `KafkaTemplate.send()` throws synchronously when the send already failed | `500` instead of `503` | Catch `KafkaException` (Spring and Apache) → `EventPublishException` → `503` + `Retry-After` |
 | `Ctrl+Z` in the terminal | App suspended, still holding port 8080 | Stop with `Ctrl+C`; clean up with `jobs` / `kill %N` |
+| App started before the OTel agent was added | Tempo search returns 0 traces | Restart the app; check `target/otel/opentelemetry-javaagent.jar` and the agent version line in the log |
+| `@Scheduled` methods are instrumented | A trace every 15 s for the SSE heartbeat (noise) | `OTEL_INSTRUMENTATION_SPRING_SCHEDULING_ENABLED=false` |
+| Startup replay counted as delivery latency | p50 ≈ 17 ms but p95/p99 pinned at 10 s (top histogram bucket) | Record latency only for events created after startup; count replays in `streaming.events.replayed`. Always look at p95/p99, not just averages |
+| Stacked time series with sparse series | Wrong color/series appears to carry all the traffic | Use `stacking: none` for per-type rates |
 
 ---
 
@@ -357,7 +361,7 @@ Local hardware will not reach 10,000 RPS; record what you actually measure and e
 | 1 | Bootstrap & scaffold fixes | ✅ | Spring Boot 4.1.2 / Java 21; dev container fixed (see Lessons learned); README translated after Day 3. |
 | 2 | Domain, REST/SSE, unit tests | ✅ | `MatchEvent`/`MatchState` records, `StreamingService` (state + SSE + heartbeat), Problem Details; 26 tests. Virtual threads moved to Day 6 (measure before/after). |
 | 3 | Kafka producer/consumer + integration test | ✅ | Port/adapter publisher, fan-out consumer with state replay, poison-message skip, Testcontainers, fail-fast `503`; ADR 0001–0002; 33 tests. |
-| 4 | OpenTelemetry + Grafana | ☐ | |
+| 4 | OpenTelemetry + Grafana | ✅ | `grafana/otel-lgtm` 0.30.0 in compose; OTel Java agent 2.31.1 (downloaded by Maven, attached by `spring-boot:run`); end-to-end trace `POST /events → publish → process`; custom metrics (SSE clients, delivery latency, delivered/replayed); dashboard as code in `docs/grafana-dashboard.json`. First local numbers: delivery p50 ≈ 10 ms, p99 ≈ 25 ms. |
 | 5 | Docker + kind + HPA | ☐ | |
 | 6 | k6 load test + tuning | ☐ | |
 | 7 | Terraform (plan only) | ☐ | |

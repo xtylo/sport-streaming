@@ -50,6 +50,13 @@
 			<artifactId>spring-boot-starter-webmvc</artifactId>
 		</dependency>
 
+		<!-- OpenTelemetry API for custom metrics/spans (version managed by Spring Boot).
+		     The Java agent provides the SDK at runtime; without the agent the API is a no-op. -->
+		<dependency>
+			<groupId>io.opentelemetry</groupId>
+			<artifactId>opentelemetry-api</artifactId>
+		</dependency>
+
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-actuator-test</artifactId>
@@ -132,6 +139,8 @@
 						<OTEL_EXPORTER_OTLP_ENDPOINT>http://localhost:4318</OTEL_EXPORTER_OTLP_ENDPOINT>
 						<OTEL_EXPORTER_OTLP_PROTOCOL>http/protobuf</OTEL_EXPORTER_OTLP_PROTOCOL>
 						<OTEL_METRIC_EXPORT_INTERVAL>10000</OTEL_METRIC_EXPORT_INTERVAL>
+						<!-- Don't create a trace for every @Scheduled run (the 15 s SSE heartbeat is noise) -->
+						<OTEL_INSTRUMENTATION_SPRING_SCHEDULING_ENABLED>false</OTEL_INSTRUMENTATION_SPRING_SCHEDULING_ENABLED>
 					</environmentVariables>
 				</configuration>
 			</plugin>

@@ -2,6 +2,7 @@ package com.streaming.kafka;
 
 import com.streaming.StreamingService;
 import com.streaming.domain.MatchEvent;
+import com.streaming.observability.StreamingMetrics;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,10 +30,12 @@ public class MatchEventConsumer {
 
     private final StreamingService streamingService;
     private final JsonMapper jsonMapper;
+    private final StreamingMetrics metrics;
 
-    public MatchEventConsumer(StreamingService streamingService, JsonMapper jsonMapper) {
+    public MatchEventConsumer(StreamingService streamingService, JsonMapper jsonMapper, StreamingMetrics metrics) {
         this.streamingService = streamingService;
         this.jsonMapper = jsonMapper;
+        this.metrics = metrics;
     }
 
     @KafkaListener(
@@ -53,5 +56,6 @@ public class MatchEventConsumer {
         log.debug("Consumed event {} for match {} from partition {} offset {}",
                 event.eventId(), event.matchId(), record.partition(), record.offset());
         streamingService.onEventReceived(event);
+        metrics.recordDelivered(event);
     }
 }
