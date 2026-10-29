@@ -2,7 +2,7 @@
 # Run from the repo root (inside the dev container):  docker compose up -d
 #
 # Day 3: Kafka (single broker, KRaft mode - no ZooKeeper)
-# Day 4: grafana/otel-lgtm (OpenTelemetry collector + Grafana) will be added here
+# Day 4: grafana/otel-lgtm (OpenTelemetry collector + Grafana, Tempo, Prometheus, Loki)
 # Day 5: the streaming-service container will be added here
 
 services:
@@ -42,6 +42,19 @@ services:
       timeout: 10s
       retries: 10
       start_period: 15s
+
+  # All-in-one OpenTelemetry backend for local development:
+  #   OTel Collector (receives OTLP) -> Tempo (traces), Prometheus (metrics), Loki (logs) -> Grafana
+  # Grafana: http://localhost:3000  (admin / admin)
+  lgtm:
+    image: grafana/otel-lgtm:0.30.0
+    container_name: lgtm
+    ports:
+      - "3000:3000" # Grafana UI
+      - "4317:4317" # OTLP gRPC  (the Java agent sends here)
+      - "4318:4318" # OTLP HTTP
+    # Telemetry is ephemeral on purpose (dev only). To keep dashboards/data across
+    # "docker compose down", mount a volume:  - lgtm-data:/data
 
   # Optional: LocalStack for AWS APIs that the free tier supports (S3, IAM, ...).
   # EKS and MSK emulation are NOT available in the free tier - see docs/PLAN.md.

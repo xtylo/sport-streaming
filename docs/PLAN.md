@@ -343,7 +343,6 @@ Local hardware will not reach 10,000 RPS; record what you actually measure and e
 | Docker Desktop **WSL integration** off | Container fails to start: *distro-services/ubuntu.sock: no such file* (VS Code mounts the Wayland socket from Ubuntu) | Settings → Resources → WSL integration → enable Ubuntu (or `dev.containers.mountWaylandSocket: false`) |
 | `JAVA_HOME` in WSL points to a Windows JDK | `mvnw`: *JAVA_HOME is not defined correctly* | Work inside the dev container (or install a Linux JDK in WSL) |
 | Files written by another Windows user | Maven: *Operation not permitted* copying resources | Recreate the files as your user; `mvn clean` |
-| `CLUSTER_ID` in compose | Kafka refuses to format storage | Must be a 22-char base64 UUID (`kafka-storage.sh random-uuid`) |
 | `docker compose down` | All events gone, empty snapshots | No volume for Kafka data: use `stop`/`start` to keep events |
 | Producer `max.block.ms` default (60 s) | `POST /events` hangs 60 s when Kafka is down | `max.block.ms=5000`, aligned with the send timeout |
 | `KafkaTemplate.send()` throws synchronously when the send already failed | `500` instead of `503` | Catch `KafkaException` (Spring and Apache) → `EventPublishException` → `503` + `Retry-After` |
