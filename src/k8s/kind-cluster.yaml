@@ -1,0 +1,17 @@
+# Local Kubernetes cluster for Day 5 (kind = Kubernetes IN Docker).
+#
+#   kind create cluster --config src/k8s/kind-cluster.yaml
+#   kind delete cluster --name streaming
+#
+# One node acting as control plane and worker keeps memory usage low on a laptop.
+# extraPortMappings expose NodePort services on the dev container's localhost:
+#   30080 -> streaming-service (http://localhost:30080)
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: streaming
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30080
+        hostPort: 30080
+        protocol: TCP

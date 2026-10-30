@@ -20,8 +20,8 @@
 | 1. Streaming architecture and microservice design | ✅ |
 | 2. Spring Boot backend (ingest, snapshot, SSE) | ✅ |
 | 3. Kafka for event delivery | ✅ |
-| 4. OpenTelemetry observability | ⏳ |
-| 5. Containers + local Kubernetes (kind) with autoscaling | ⏳ |
+| 4. OpenTelemetry observability | ✅ |
+| 5. Containers + local Kubernetes (kind) with autoscaling | ✅ |
 | 6. Load testing and tuning (k6) | ⏳ |
 | 7–8. Terraform + deployment to AWS EKS | ⏳ |
 
@@ -117,6 +117,33 @@ Everything runs inside the **dev container** (VS Code → *Dev Containers: Reope
 4. **Fan-out across instances:** start a second instance with `./mvnw spring-boot:run -Dspring-boot.run.arguments=--server.port=8081`; an event posted to one instance reaches SSE clients connected to the other.
 
 > `docker compose stop/start` keeps the events; `docker compose down` deletes them (no volume for Kafka data).
+
+### As a container
+
+```bash
+docker compose --profile app up -d --build     # Kafka + LGTM + the service image
+```
+
+### On local Kubernetes (kind)
+
+```bash
+kind create cluster --config src/k8s/kind-cluster.yaml
+kind load docker-image streaming-service:dev --name streaming
+# metrics-server (needed by the HPA); kind needs --kubelet-insecure-tls
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+kubectl patch deployment metrics-server -n kube-system --type=json \
+  -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+
+kubectl apply -f src/k8s/namespace.yaml
+# Telemetry goes to the LGTM container via the kind network gateway
+GW=$(docker network inspect kind --format '{{range .IPAM.Config}}{{.Gateway}} {{end}}' | tr ' ' '\n' | grep -E '^[0-9]+\.' | head -1)
+kubectl -n streaming create configmap streaming-otel --from-literal=OTEL_EXPORTER_OTLP_ENDPOINT=http://$GW:4318
+
+kubectl apply -k src/k8s
+curl -s localhost:30080/stream                 # NodePort 30080
+```
+
+What was verified on kind: an event posted to one pod reaches SSE clients of another pod; a deleted pod is replaced and rebuilds the match state from Kafka; the HPA scales 2 → 6 → 2 under in-cluster load.
 
 ## Tests
 

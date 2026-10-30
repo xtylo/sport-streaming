@@ -1,0 +1,9 @@
+# kubectl apply -k src/k8s   (applies everything below; kind-cluster.yaml is not a k8s resource)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - kafka.yaml
+  - deployment.yaml
+  - service.yaml
+  - hpa.yaml

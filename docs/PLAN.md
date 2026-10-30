@@ -334,7 +334,7 @@ Local hardware will not reach 10,000 RPS; record what you actually measure and e
 | Laptop can't generate enough load | Measure per-pod capacity and extrapolate; run k6 from the cloud only if needed. |
 | Secrets in git | `.gitignore` for `*.tfstate*`, `tfplan`, `.env`, `.localstack/`; AWS creds only via CLI profile. |
 
-### Lessons learned (Days 1–4)
+### Lessons learned (Days 1–5)
 
 | Problem | Symptom | Fix |
 | --- | --- | --- |
@@ -351,6 +351,12 @@ Local hardware will not reach 10,000 RPS; record what you actually measure and e
 | `@Scheduled` methods are instrumented | A trace every 15 s for the SSE heartbeat (noise) | `OTEL_INSTRUMENTATION_SPRING_SCHEDULING_ENABLED=false` |
 | Startup replay counted as delivery latency | p50 ≈ 17 ms but p95/p99 pinned at 10 s (top histogram bucket) | Record latency only for events created after startup; count replays in `streaming.events.replayed`. Always look at p95/p99, not just averages |
 | Stacked time series with sparse series | Wrong color/series appears to carry all the traffic | Use `stacking: none` for per-type rates |
+| Docker Desktop not running after a reboot | Dev Containers hangs at "failed to connect to the docker API" | `docker desktop start`; enable *Start Docker Desktop when you sign in* |
+| Docker Desktop WSL integration with Ubuntu 26.04 stops | "WSL integration with distro 'Ubuntu' unexpectedly stopped" | Restart it / `wsl --shutdown`; if it repeats, disable the integration and set `dev.containers.mountWaylandSocket: false` + `dev.containers.executeInWSL: false` |
+| Service named `kafka` in Kubernetes | Image reads injected `KAFKA_PORT=tcp://…` as broker config | `enableServiceLinks: false` |
+| App starts before Kafka in the cluster | Topic never created (only created on startup) | `initContainer` that waits for `kafka:9092` |
+| Deleted pod shows `Error` | JVM exits with 143 (SIGTERM) after graceful shutdown; open SSE connections delay it | Expected; the replacement pod is the one to watch |
+| HPA on a single kind node | Scales 2 → 6 instantly but CPU stays > target | Pods share the same node CPU; on EKS add node autoscaling (Cluster Autoscaler / Karpenter). For SSE, scale on `streaming_sse_active_clients` (KEDA / Prometheus Adapter) rather than CPU |
 
 ---
 
@@ -362,7 +368,7 @@ Local hardware will not reach 10,000 RPS; record what you actually measure and e
 | 2 | Domain, REST/SSE, unit tests | ✅ | `MatchEvent`/`MatchState` records, `StreamingService` (state + SSE + heartbeat), Problem Details; 26 tests. Virtual threads moved to Day 6 (measure before/after). |
 | 3 | Kafka producer/consumer + integration test | ✅ | Port/adapter publisher, fan-out consumer with state replay, poison-message skip, Testcontainers, fail-fast `503`; ADR 0001–0002; 33 tests. |
 | 4 | OpenTelemetry + Grafana | ✅ | `grafana/otel-lgtm` 0.30.0 in compose; OTel Java agent 2.31.1 (downloaded by Maven, attached by `spring-boot:run`); end-to-end trace `POST /events → publish → process`; custom metrics (SSE clients, delivery latency, delivered/replayed); dashboard as code in `docs/grafana-dashboard.json`. First local numbers: delivery p50 ≈ 10 ms, p99 ≈ 25 ms. |
-| 5 | Docker + kind + HPA | ☐ | |
+| 5 | Docker + kind + HPA | ✅ | Multi-stage Dockerfile with Spring Boot layers (app layer ≈ 41 kB, image 180 MB compressed), compose profile `app`; kind cluster + metrics-server; manifests in `src/k8s` (Kafka StatefulSet + PVC, Deployment with startup/readiness/liveness probes, non-root + read-only FS, NodePort Service, HPA). Verified: fan-out across pods, pod kill → state rebuilt from Kafka, HPA 2 → 6 → 2 under in-cluster load. |
 | 6 | k6 load test + tuning | ☐ | |
 | 7 | Terraform (plan only) | ☐ | |
 | 8 | EKS deploy, smoke, destroy, README | ☐ | |

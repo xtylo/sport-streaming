@@ -3,7 +3,9 @@
 #
 # Day 3: Kafka (single broker, KRaft mode - no ZooKeeper)
 # Day 4: grafana/otel-lgtm (OpenTelemetry collector + Grafana, Tempo, Prometheus, Loki)
-# Day 5: the streaming-service container will be added here
+# Day 5: the streaming-service container (profile "app", opt-in):
+#          docker compose --profile app up -d --build
+#        Without the profile, only Kafka + LGTM start (run the app with ./mvnw spring-boot:run).
 
 services:
   kafka:
@@ -55,6 +57,25 @@ services:
       - "4318:4318" # OTLP HTTP
     # Telemetry is ephemeral on purpose (dev only). To keep dashboards/data across
     # "docker compose down", mount a volume:  - lgtm-data:/data
+
+  # The service as a container, wired to the other containers by service name.
+  app:
+    profiles: ["app"]
+    build: ./src
+    image: streaming-service:dev
+    container_name: streaming-service
+    ports:
+      - "8080:8080"
+    environment:
+      # Inside the compose network Kafka is kafka:29092 (the PLAINTEXT listener), not localhost:9092
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=compose
+    depends_on:
+      kafka:
+        condition: service_healthy
+      lgtm:
+        condition: service_started
 
   # Optional: LocalStack for AWS APIs that the free tier supports (S3, IAM, ...).
   # EKS and MSK emulation are NOT available in the free tier - see docs/PLAN.md.

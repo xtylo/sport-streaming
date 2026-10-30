@@ -1,0 +1,10 @@
+# Keep the build context small: the image builds the jar itself.
+target/
+infra/.terraform/
+infra/*.tfstate*
+infra/tfplan
+k8s/
+*.iml
+.idea/
+.vscode/
+.git/

@@ -1,0 +1,26 @@
+# Horizontal Pod Autoscaler: adds pods when average CPU > 60% of the request (250m).
+# Needs metrics-server. Max 6 keeps a laptop alive; on EKS the max is sized to the nodes.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: streaming-service
+  namespace: streaming
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: streaming-service
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+    scaleDown:
+      stabilizationWindowSeconds: 60 # default is 300 s; shorter so the demo scales back quickly
