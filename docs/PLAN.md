@@ -20,7 +20,7 @@ In 8 hours the goal is a **working, observable, load-tested vertical slice** tha
 - [x] Unit tests + one Kafka integration test (Testcontainers) passing in CI-ready form (`mvn verify`).
 - [x] Traces, metrics and logs visible in Grafana via OpenTelemetry.
 - [ ] Runs locally with `docker compose up` and on a local Kubernetes cluster (kind) with HPA.
-- [ ] k6 load test executed with **measured** p95/p99, error rate and saturation point recorded in the README.
+- [x] k6 load test executed with **measured** p95/p99, error rate and saturation point recorded in the README.
 - [ ] Terraform for AWS (VPC + EKS + ECR) applied once, smoke-tested, and **destroyed** the same session.
 - [ ] README fully in English, with honest, measured results.
 
@@ -334,7 +334,7 @@ Local hardware will not reach 10,000 RPS; record what you actually measure and e
 | Laptop can't generate enough load | Measure per-pod capacity and extrapolate; run k6 from the cloud only if needed. |
 | Secrets in git | `.gitignore` for `*.tfstate*`, `tfplan`, `.env`, `.localstack/`; AWS creds only via CLI profile. |
 
-### Lessons learned (Days 1–5)
+### Lessons learned (Days 1–6)
 
 | Problem | Symptom | Fix |
 | --- | --- | --- |
@@ -357,6 +357,12 @@ Local hardware will not reach 10,000 RPS; record what you actually measure and e
 | App starts before Kafka in the cluster | Topic never created (only created on startup) | `initContainer` that waits for `kafka:9092` |
 | Deleted pod shows `Error` | JVM exits with 143 (SIGTERM) after graceful shutdown; open SSE connections delay it | Expected; the replacement pod is the one to watch |
 | HPA on a single kind node | Scales 2 → 6 instantly but CPU stays > target | Pods share the same node CPU; on EKS add node autoscaling (Cluster Autoscaler / Karpenter). For SSE, scale on `streaming_sse_active_clients` (KEDA / Prometheus Adapter) rather than CPU |
+| Closed-model load test (VUs + `sleep`) | Generator slows down with the server and hides latency (coordinated omission) | Arrival-rate executors (open model) |
+| `dropped_iterations` threshold `count<1` | A few drops when k6 creates VUs mid-test fail the run | Pre-allocate VUs; limit relative to planned iterations (0.1%) |
+| `GET /stream` serialized ~76 KB per request | Pod saturates at ≈800 req/s; reads starve the Kafka producer (503s on ingest) | Pre-rendered snapshot per state change + ETag/Cache-Control (ADR 0003) |
+| `docker stats` read by eye | CPU looked like 30–60% while the JVM metric showed ≈100% | Trust the continuous JVM CPU metric in Grafana |
+| Virtual threads on a CPU-bound service | No throughput gain; POST p99 2.5× worse (Tomcat's 200 threads were implicit admission control) | Keep off, or add an explicit bulkhead/concurrency limit |
+| Run-to-run variance on a shared laptop | Same config: GET p50 298 ms vs 90 ms | Repeat runs; only trust large differences |
 
 ---
 
@@ -369,7 +375,7 @@ Local hardware will not reach 10,000 RPS; record what you actually measure and e
 | 3 | Kafka producer/consumer + integration test | ✅ | Port/adapter publisher, fan-out consumer with state replay, poison-message skip, Testcontainers, fail-fast `503`; ADR 0001–0002; 33 tests. |
 | 4 | OpenTelemetry + Grafana | ✅ | `grafana/otel-lgtm` 0.30.0 in compose; OTel Java agent 2.31.1 (downloaded by Maven, attached by `spring-boot:run`); end-to-end trace `POST /events → publish → process`; custom metrics (SSE clients, delivery latency, delivered/replayed); dashboard as code in `docs/grafana-dashboard.json`. First local numbers: delivery p50 ≈ 10 ms, p99 ≈ 25 ms. |
 | 5 | Docker + kind + HPA | ✅ | Multi-stage Dockerfile with Spring Boot layers (app layer ≈ 41 kB, image 180 MB compressed), compose profile `app`; kind cluster + metrics-server; manifests in `src/k8s` (Kafka StatefulSet + PVC, Deployment with startup/readiness/liveness probes, non-root + read-only FS, NodePort Service, HPA). Verified: fan-out across pods, pod kill → state rebuilt from Kafka, HPA 2 → 6 → 2 under in-cluster load. |
-| 6 | k6 load test + tuning | ☐ | |
+| 6 | k6 load test + tuning | ✅ | Open-model k6 profiles (smoke/baseline/stress), app limited to 1 vCPU/768 MiB. Found JSON serialization as the bottleneck → pre-rendered snapshot cache with ETag/Cache-Control (ADR 0003): +82% throughput, 0% ingest errors under overload. Virtual threads measured and rejected (POST p99 2.5× worse when CPU-bound). gzip pre-compressed: −78% bytes. Results in `docs/RESULTS.md`. Took well over the 1-hour budget. |
 | 7 | Terraform (plan only) | ☐ | |
 | 8 | EKS deploy, smoke, destroy, README | ☐ | |
 

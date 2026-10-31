@@ -76,6 +76,13 @@ services:
         condition: service_healthy
       lgtm:
         condition: service_started
+    # Same resources as one Kubernetes pod (src/k8s/deployment.yaml limits), so load tests
+    # against this container measure the capacity of ONE pod.
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 768M
 
   # Optional: LocalStack for AWS APIs that the free tier supports (S3, IAM, ...).
   # EKS and MSK emulation are NOT available in the free tier - see docs/PLAN.md.

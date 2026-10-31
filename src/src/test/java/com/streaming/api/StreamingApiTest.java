@@ -17,6 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -28,7 +29,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Each test uses its own matchId because the service (a singleton) is shared across tests.
  */
 @WebMvcTest(controllers = {EventController.class, StreamController.class})
-@Import({StreamingService.class, LoopbackMatchEventPublisher.class})
+@Import({StreamingService.class, StreamSnapshotCache.class, LoopbackMatchEventPublisher.class})
 class StreamingApiTest {
 
     @Autowired
@@ -123,6 +124,53 @@ class StreamingApiTest {
 
         mvc.perform(get("/stream"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.matchId == '%s')]".formatted(matchId)).exists());
+    }
+
+    @Test
+    @DisplayName("GET /stream returns an ETag and Cache-Control, and 304 when the client already has it")
+    void snapshotSupportsConditionalRequests() throws Exception {
+        postEvent(goalJson(newMatchId(), "Tigres"));
+
+        MvcResult first = mvc.perform(get("/stream"))
+                .andExpect(status().isOk())
+                .andExpect(header().exists("ETag"))
+                .andExpect(header().string("Cache-Control", "max-age=1, public"))
+                .andReturn();
+        String etag = first.getResponse().getHeader("ETag");
+
+        // Same state: the client's copy is still valid -> 304 without body
+        mvc.perform(get("/stream").header("If-None-Match", etag))
+                .andExpect(status().isNotModified());
+
+        // State changed: new content, new ETag -> 200
+        postEvent(goalJson(newMatchId(), "Rayados"));
+        mvc.perform(get("/stream").header("If-None-Match", etag))
+                .andExpect(status().isOk())
+                .andExpect(header().string("ETag", org.hamcrest.Matchers.not(etag)));
+    }
+
+    @Test
+    @DisplayName("GET /stream serves gzip to clients that accept it, plain JSON to the rest")
+    void snapshotIsGzipWhenAccepted() throws Exception {
+        String matchId = newMatchId();
+        postEvent(goalJson(matchId, "Tigres"));
+
+        MvcResult gzipped = mvc.perform(get("/stream").header("Accept-Encoding", "gzip, deflate, br"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Encoding", "gzip"))
+                .andExpect(header().string("Vary", org.hamcrest.Matchers.containsString("Accept-Encoding")))
+                .andReturn();
+        String json;
+        try (var in = new java.util.zip.GZIPInputStream(
+                new java.io.ByteArrayInputStream(gzipped.getResponse().getContentAsByteArray()))) {
+            json = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        }
+        assertThat(json).contains("\"matchId\":\"" + matchId + "\"");
+
+        mvc.perform(get("/stream"))
+                .andExpect(status().isOk())
+                .andExpect(header().doesNotExist("Content-Encoding"))
                 .andExpect(jsonPath("$[?(@.matchId == '%s')]".formatted(matchId)).exists());
     }
 

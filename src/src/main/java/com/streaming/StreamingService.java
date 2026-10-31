@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Core service for live sports event streaming.
@@ -37,10 +38,17 @@ public class StreamingService {
     private final Map<String, MatchState> states = new ConcurrentHashMap<>();
     private final Map<String, List<SseEmitter>> subscribers = new ConcurrentHashMap<>();
 
+    /**
+     * Incremented after every state change. Read models (e.g. the cached GET /stream snapshot)
+     * compare it with the version they rendered to know when they are stale.
+     */
+    private final AtomicLong version = new AtomicLong();
+
     /** Applies an event to the match state and broadcasts it to the match subscribers. */
     public MatchState onEventReceived(MatchEvent event) {
         MatchState updated = states.compute(event.matchId(),
                 (id, current) -> (current != null ? current : MatchState.initial(id)).apply(event));
+        version.incrementAndGet(); // after the state change, so a reader that sees N also sees the change
 
         List<SseEmitter> emitters = subscribers.get(event.matchId());
         if (emitters != null) {
@@ -58,6 +66,11 @@ public class StreamingService {
     /** Snapshot of all known matches. */
     public Collection<MatchState> snapshot() {
         return List.copyOf(states.values());
+    }
+
+    /** Number of state changes applied so far (monotonic, per instance). */
+    public long version() {
+        return version.get();
     }
 
     /** Snapshot of a single match. */

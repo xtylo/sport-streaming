@@ -4,7 +4,7 @@
 
 **Solution:** a streaming platform for live sports **event data** (scores, play-by-play, match state) built with Java / Spring Boot, Apache Kafka and Kubernetes (AWS EKS), observable end to end with OpenTelemetry. Events are ingested over HTTP, stored in Kafka and pushed to clients in real time with Server-Sent Events (SSE). The service scales horizontally: every instance receives every event and serves its own connected clients.
 
-**Impact:** *to be measured.* Throughput per pod, p95/p99 latency, error rate and saturation point will be recorded here from k6 load tests (Day 6, local) and an EKS deployment (Day 8). See [Target metrics](#target-metrics).
+**Impact (measured locally, one pod = 1 vCPU):** event delivery p99 ≈ **10 ms** (POST → SSE push) at normal load; a CQRS-style pre-rendered snapshot raised read capacity **+82%** (808 → ≈1,480 req/s per pod), eliminated ingest errors under overload, and gzip cut bandwidth **−78%**; scales horizontally (HPA 2 → 6 pods verified on Kubernetes). Full results in [`docs/RESULTS.md`](docs/RESULTS.md); EKS numbers pending (Day 8).
 
 **Technologies:** Java 21, Spring Boot 4, Apache Kafka (KRaft), Docker, Kubernetes (kind / AWS EKS), Terraform, OpenTelemetry, Grafana, k6, JUnit 5, Testcontainers.
 
@@ -22,7 +22,7 @@
 | 3. Kafka for event delivery | ✅ |
 | 4. OpenTelemetry observability | ✅ |
 | 5. Containers + local Kubernetes (kind) with autoscaling | ✅ |
-| 6. Load testing and tuning (k6) | ⏳ |
+| 6. Load testing and tuning (k6) | ✅ |
 | 7–8. Terraform + deployment to AWS EKS | ⏳ |
 
 ## Architecture
@@ -190,12 +190,14 @@ Go-live checklist: EKS cluster active, Kafka healthy, pods ready, load test and 
 
 | Metric | Target | How to measure | Result |
 | --- | --- | --- | --- |
-| Snapshot throughput (`GET /stream`) | Max sustained RPS per pod | k6 + Grafana | *pending* |
-| Latency | p95 < 200 ms, p99 < 300 ms | k6 summary + OTel histogram | *pending* |
-| Event delivery latency (produce → SSE) | p99 < 200 ms | `streaming.event_delivery_latency_ms` | *pending* |
-| Error rate | < 1% (stretch < 0.1%) | k6 `http_req_failed` | *pending* |
-| Saturation point | RPS where p99 > 300 ms | Ramp test | *pending* |
-| Horizontal scaling | HPA scales out and back in | `kubectl get hpa -w` | *pending* |
+| Snapshot throughput (`GET /stream`) | Max sustained RPS per pod | k6 + Grafana | ≈1,480 req/s served at saturation (1 vCPU); was 808 before the snapshot cache |
+| Latency | p95 < 200 ms, p99 < 300 ms | k6 summary + OTel histogram | ✅ at 300 req/s: GET p99 3.7–17.5 ms, POST p99 9–26 ms |
+| Event delivery latency (produce → SSE) | p99 < 200 ms | `streaming.event.delivery_latency` | ✅ p99 ≈ 10 ms at normal load |
+| Error rate | < 1% (stretch < 0.1%) | k6 `http_req_failed` | ✅ 0% at normal load; 0% under overload after the cache (0.93% before) |
+| Saturation point | RPS where p99 > 300 ms | Ramp test | Between 300 and ≈1,500 req/s per pod (knee not isolated yet) |
+| Horizontal scaling | HPA scales out and back in | `kubectl get hpa -w` | ✅ 2 → 6 → 2 pods on kind |
+
+Local measurements (laptop, 1 vCPU per pod, k6 on the same host); methodology, all runs and caveats in [`docs/RESULTS.md`](docs/RESULTS.md).
 
 ## Technical challenges
 
