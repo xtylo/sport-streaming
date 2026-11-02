@@ -1,0 +1,31 @@
+# EKS overlay: the same manifests as kind (src/k8s/base), adapted to EKS Auto Mode.
+#
+# The image URL depends on the AWS account, so it is not committed. Render + substitute + apply:
+#   ECR=$(terraform -chdir=src/infra output -raw ecr_repository_url)
+#   kubectl kustomize src/k8s/eks | sed "s#ECR_REPOSITORY_URL#${ECR}#g" | kubectl apply -f -
+# See docs/RUNBOOK-EKS.md.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../base             # base: namespace, Kafka, Deployment, Service, HPA
+  - storageclass.yaml   # default gp3 StorageClass for Kafka's volume (Auto Mode has none)
+  - lgtm.yaml           # OpenTelemetry backend + Grafana inside the cluster
+
+# OTLP endpoint for the app (read by envFrom in the base Deployment)
+configMapGenerator:
+  - name: streaming-otel
+    namespace: streaming
+    literals:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://lgtm:4318
+generatorOptions:
+  disableNameSuffixHash: true
+
+images:
+  - name: streaming-service
+    newName: ECR_REPOSITORY_URL   # replaced at deploy time (see above)
+    newTag: v1
+
+patches:
+  - path: service-patch.yaml
+  - path: deployment-patch.yaml

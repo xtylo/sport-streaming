@@ -134,7 +134,7 @@ kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/late
 kubectl patch deployment metrics-server -n kube-system --type=json \
   -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
 
-kubectl apply -f src/k8s/namespace.yaml
+kubectl apply -f src/k8s/base/namespace.yaml
 # Telemetry goes to the LGTM container via the kind network gateway
 GW=$(docker network inspect kind --format '{{range .IPAM.Config}}{{.Gateway}} {{end}}' | tr ' ' '\n' | grep -E '^[0-9]+\.' | head -1)
 kubectl -n streaming create configmap streaming-otel --from-literal=OTEL_EXPORTER_OTLP_ENDPOINT=http://$GW:4318
@@ -162,15 +162,21 @@ Integration tests start their own Kafka container — `docker compose` is not ne
 
 ## Cloud deployment (AWS)
 
-Planned for Days 7–8 (see `docs/PLAN.md`): Terraform with the `terraform-aws-modules` VPC and EKS modules plus ECR, applied, smoke-tested and **destroyed in the same session** to keep the cost around $1–2.
+Terraform in `src/infra` (Day 7, planned: 57 resources): VPC with private/public subnets and a single NAT gateway,
+**EKS Auto Mode** (Kubernetes 1.36; nodes, EBS storage and load balancers managed by AWS — see
+[ADR 0004](docs/adr/0004-eks-auto-mode.md)), ECR, and an optional, disabled MSK Serverless. The Kubernetes manifests
+reuse the kind ones through an overlay (`src/k8s/eks`: gp3 StorageClass, NLB, in-cluster LGTM, image from ECR).
+The environment is applied, tested and **destroyed in the same session** — step by step in
+[`docs/RUNBOOK-EKS.md`](docs/RUNBOOK-EKS.md).
 
 ```bash
 cd src/infra
+cp terraform.example.tfvars terraform.tfvars   # set api_allowed_cidrs to your IP
 terraform init
 terraform plan -out tfplan
 terraform apply tfplan
-# ... deploy, smoke test, load test ...
-kubectl delete -f ../k8s/      # delete load balancers first
+# push the image to ECR, deploy the overlay, smoke + load test (runbook)
+kubectl delete namespace streaming             # load balancer + EBS volume first
 terraform destroy
 ```
 

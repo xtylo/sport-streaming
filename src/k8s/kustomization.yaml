@@ -1,9 +1,7 @@
-# kubectl apply -k src/k8s   (applies everything below; kind-cluster.yaml is not a k8s resource)
+# Local Kubernetes (kind):  kubectl apply -k src/k8s
+# The manifests live in base/ (shared with the EKS overlay in eks/); kind uses them unchanged.
+# kind-cluster.yaml is the kind cluster config, not a Kubernetes resource.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - namespace.yaml
-  - kafka.yaml
-  - deployment.yaml
-  - service.yaml
-  - hpa.yaml
+  - base

@@ -1,0 +1,17 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: streaming-service
+  namespace: streaming
+spec:
+  template:
+    spec:
+      # The image is built on an x86 laptop (linux/amd64): keep the pods off ARM (Graviton) nodes.
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      containers:
+        - name: streaming-service
+          imagePullPolicy: Always # pull from ECR (the tag may be re-pushed during the demo)
+          env:
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: deployment.environment.name=eks,k8s.namespace.name=$(POD_NAMESPACE),k8s.pod.name=$(POD_NAME)

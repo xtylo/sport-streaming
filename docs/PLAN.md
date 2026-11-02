@@ -87,11 +87,10 @@ sport-streaming/
 │   │   ├── variables.tf             (new)
 │   │   └── outputs.tf               (new)
 │   ├── k8s/                         (new)  Day 5
-│   │   ├── kafka.yaml
-│   │   ├── deployment.yaml
-│   │   ├── service.yaml
-│   │   ├── hpa.yaml
-│   │   └── ingress.yaml             (Day 8, ALB)
+│   │   ├── kind-cluster.yaml        kind cluster config
+│   │   ├── kustomization.yaml       kind entry point: resources = base
+│   │   ├── base/                    namespace, kafka, deployment, service, hpa (shared)
+│   │   └── eks/                     Day 7 overlay: gp3 StorageClass, NLB, LGTM, ECR image
 │   └── src/
 │       ├── main/java/com/streaming/
 │       │   ├── StreamingApplication.java        (new)
@@ -366,6 +365,11 @@ Local hardware will not reach 10,000 RPS; record what you actually measure and e
 | Pod resources guessed, not measured | CPU request 250m vs 0.3–0.5 cores real use (HPA % meaningless, node overcommitted); 1 CPU limit made the JVM pick the Serial GC | Size from load tests: CPU request = typical use, no CPU limit, memory request = limit for the JVM, heap 65% |
 | Forcing G1 on 1 CPU | Worse tail latency than Serial (same-day GET p99 57 vs 43 ms) | Keep `-XX:+UseSerialGC` explicit for 1-core pods; revisit with ≥ 2 dedicated CPUs |
 | Comparing runs from different days | Environment variance bigger than the effect measured (G1 looked 3× worse vs Saturday, 1.3× vs same day) | Compare only same-day, same-environment runs |
+| AWS CLI configured with root access keys | `get-caller-identity` ARN ends in `:root` | IAM user (or IAM Identity Center) for daily work; delete root access keys; MFA on root |
+| Public EKS API endpoint | Reachable from the whole internet by default | `endpoint_public_access_cidrs` = your IP (`terraform.tfvars`, git-ignored) |
+| EKS Auto Mode has no default StorageClass | Kafka PVC would stay Pending | Overlay defines a default gp3 `StorageClass` (`ebs.csi.eks.amazonaws.com`) |
+| Cluster-created resources (NLB, EBS) outside Terraform state | `destroy` blocked or orphaned, billed resources | Delete the namespace with kubectl before `terraform destroy` (runbook step 8) |
+| Kustomize overlay inside its own base (`src/k8s/eks` → `../`) | "cycle detected: candidate root contains visited root" | Standard layout: shared manifests in `base/`, environments reference `../base` |
 
 ---
 
@@ -379,7 +383,7 @@ Local hardware will not reach 10,000 RPS; record what you actually measure and e
 | 4 | OpenTelemetry + Grafana | ✅ | `grafana/otel-lgtm` 0.30.0 in compose; OTel Java agent 2.31.1 (downloaded by Maven, attached by `spring-boot:run`); end-to-end trace `POST /events → publish → process`; custom metrics (SSE clients, delivery latency, delivered/replayed); dashboard as code in `docs/grafana-dashboard.json`. First local numbers: delivery p50 ≈ 10 ms, p99 ≈ 25 ms. |
 | 5 | Docker + kind + HPA | ✅ | Multi-stage Dockerfile with Spring Boot layers (app layer ≈ 41 kB, image 180 MB compressed), compose profile `app`; kind cluster + metrics-server; manifests in `src/k8s` (Kafka StatefulSet + PVC, Deployment with startup/readiness/liveness probes, non-root + read-only FS, NodePort Service, HPA). Verified: fan-out across pods, pod kill → state rebuilt from Kafka, HPA 2 → 6 → 2 under in-cluster load. |
 | 6 | k6 load test + tuning | ✅ | Open-model k6 profiles (smoke/baseline/stress), app limited to 1 vCPU/768 MiB. Found JSON serialization as the bottleneck → pre-rendered snapshot cache with ETag/Cache-Control (ADR 0003): +82% throughput, 0% ingest errors under overload. Virtual threads measured and rejected (POST p99 2.5× worse when CPU-bound). gzip pre-compressed: −78% bytes. Results in `docs/RESULTS.md`. Took well over the 1-hour budget. |
-| 7 | Terraform (plan only) | ☐ | |
+| 7 | Terraform (plan only) | ✅ | AWS CLI moved from root keys to an IAM user (to do before Day 8: delete root access keys, MFA on root, $10 budget alarm). `src/infra`: VPC module ~> 6.0, **EKS Auto Mode** (module ~> 21.0, K8s 1.36, API restricted to my IP, metrics-server add-on), ECR, optional MSK Serverless (off). `terraform plan`: 57 to add. Day 8 prepared: `src/k8s/eks` overlay (gp3 StorageClass, NLB, in-cluster LGTM, ECR image, amd64), `docs/RUNBOOK-EKS.md`, ADR 0004. |
 | 8 | EKS deploy, smoke, destroy, README | ☐ | |
 
 ---

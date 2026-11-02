@@ -1,0 +1,12 @@
+# Expose the service to the internet with a Network Load Balancer created by EKS Auto Mode.
+# NLB = TCP pass-through: long-lived SSE connections are kept open (15 s heartbeats keep them active).
+apiVersion: v1
+kind: Service
+metadata:
+  name: streaming-service
+  namespace: streaming
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+spec:
+  type: LoadBalancer
+  loadBalancerClass: eks.amazonaws.com/nlb

@@ -1,0 +1,15 @@
+# EKS Auto Mode ships the EBS CSI driver but no default StorageClass.
+# Without this, Kafka's PersistentVolumeClaim stays Pending.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: auto-ebs-sc
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: ebs.csi.eks.amazonaws.com
+# Create the volume in the AZ where the pod is scheduled (EBS volumes are zonal)
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete # deleting the PVC deletes the EBS volume (no orphaned, billed disks)
+parameters:
+  type: gp3
+  encrypted: "true"
