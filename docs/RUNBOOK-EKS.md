@@ -124,5 +124,7 @@ All lists must be empty. The KMS key shows as **"Pending deletion"** (7–30 day
 | `kubectl` times out | Your IP changed: update `terraform.tfvars`, `terraform apply`, retry |
 | Pod `ImagePullBackOff` | Check the image in `kubectl describe pod`; re-run step 2 |
 | `kafka-0` Pending | `kubectl get pvc -n streaming`; the StorageClass must exist and be default |
+| `kafka-0` CrashLoopBackOff, log says `lost+found` | Fixed in `src/k8s/base/kafka.yaml` (`KAFKA_LOG_DIRS=/var/lib/kafka/data/logs`); if you change the StatefulSet while it crash-loops, delete `kafka-0` so the new spec is applied |
+| Pod keeps the old spec after `kubectl set env`/apply | StatefulSet rollouts wait for a Ready pod: `kubectl -n streaming delete pod kafka-0` |
 | `destroy` stuck on subnets/VPC | A load balancer or ENI is still there: re-run step 8's `kubectl delete`, then `destroy` again |
 | Running out of time | Skip steps 6–7 and go to step 8 |

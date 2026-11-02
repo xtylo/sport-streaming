@@ -80,6 +80,37 @@ Stress with G1 served 1,380 req/s (vs 1,484 req/s for run #4 with Serial), but t
   other host load). Only same-day comparisons are used for decisions.
 - **Final configuration meets every target with margin:** p99 ≤ 47 ms vs the 300 ms target, 0% errors.
 
+## Cloud run on AWS EKS (Day 8, 2026-11-02)
+
+Terraform (`src/infra`) + EKS Auto Mode, Kubernetes 1.36, us-west-2; manifests from `src/k8s/eks`; image from ECR.
+Environment lifetime ≈ 42 min (apply → destroy), all resources verified deleted afterwards.
+
+| Item | Result |
+| --- | --- |
+| Infrastructure | 57 resources applied in ≈ 15 min; destroyed cleanly (no clusters, instances, load balancers, NAT gateways, volumes or EIPs left) |
+| Nodes | Auto Mode launched 2 × `c7i-flex.large` (2 vCPU / 4 GiB) in us-west-2a and us-west-2b, sized from the pod requests |
+| Workload | Kafka (StatefulSet + 1 GiB gp3 EBS), LGTM, 2 × streaming-service — all `1/1`; HPA reading metrics (`cpu: 13%/60%`) |
+| Smoke + k6 `smoke` through the public NLB, from the laptop in Mexico | All thresholds OK, 0% errors |
+
+k6 `smoke` (10 GET/s + 2 POST/s, 30 s), measured from the laptop over the internet:
+
+| Route | p50 | p95 | p99 | max |
+| --- | --- | --- | --- | --- |
+| `GET /stream` | 84.9 ms | 161.4 ms | 206.3 ms | 247.5 ms |
+| `POST /events` | 95.1 ms | 162.2 ms | 242.6 ms | 269.1 ms |
+
+These numbers are dominated by the network path (Sonora → Oregon → back, plus the NLB): the service itself answers in a
+few ms (local p50 1.4 ms GET / 8 ms POST). Measuring the service in the cloud requires running k6 inside AWS.
+
+Issues found and fixed during the run:
+
+- **Kafka crash-looped on EBS:** `Found directory /var/lib/kafka/data/lost+found` — a fresh ext4 volume has `lost+found`.
+  Fixed with `KAFKA_LOG_DIRS=/var/lib/kafka/data/logs` (now in `src/k8s/base/kafka.yaml`).
+- **The StatefulSet did not replace the crashing pod** after the spec change (rolling updates wait for the broken pod to
+  become Ready): deleting `kafka-0` by hand applied the new spec.
+- **Both app replicas landed on the same node:** a single node failure would take the service down. Next step:
+  `topologySpreadConstraints` across nodes/zones.
+
 ## Capacity of one pod (1 vCPU)
 
 | | Value |
@@ -97,4 +128,5 @@ Rough sizing: at ~1,000 req/s per pod with headroom, 10,000 snapshot req/s need 
 - Thinner `GET /stream` (score/status only, history in `/stream/{matchId}`).
 - `linger.ms=0` vs `5` (deprioritized: `POST` p50 is already ≈8 ms).
 - SSE fan-out test with thousands of connected clients (k6 needs the xk6-sse extension).
-- Repeat on EKS with the load generator outside the cluster (Day 8).
+- Load test on EKS from inside AWS (k6 in the same region) to measure the service without the internet path.
+- `topologySpreadConstraints` so replicas spread across nodes and zones (seen on Day 8: both replicas on one node).

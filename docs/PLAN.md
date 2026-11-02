@@ -21,8 +21,8 @@ In 8 hours the goal is a **working, observable, load-tested vertical slice** tha
 - [x] Traces, metrics and logs visible in Grafana via OpenTelemetry.
 - [ ] Runs locally with `docker compose up` and on a local Kubernetes cluster (kind) with HPA.
 - [x] k6 load test executed with **measured** p95/p99, error rate and saturation point recorded in the README.
-- [ ] Terraform for AWS (VPC + EKS + ECR) applied once, smoke-tested, and **destroyed** the same session.
-- [ ] README fully in English, with honest, measured results.
+- [x] Terraform for AWS (VPC + EKS + ECR) applied once, smoke-tested, and **destroyed** the same session.
+- [x] README fully in English, with honest, measured results.
 
 ---
 
@@ -370,6 +370,10 @@ Local hardware will not reach 10,000 RPS; record what you actually measure and e
 | EKS Auto Mode has no default StorageClass | Kafka PVC would stay Pending | Overlay defines a default gp3 `StorageClass` (`ebs.csi.eks.amazonaws.com`) |
 | Cluster-created resources (NLB, EBS) outside Terraform state | `destroy` blocked or orphaned, billed resources | Delete the namespace with kubectl before `terraform destroy` (runbook step 8) |
 | Kustomize overlay inside its own base (`src/k8s/eks` → `../`) | "cycle detected: candidate root contains visited root" | Standard layout: shared manifests in `base/`, environments reference `../base` |
+| Kafka on a fresh EBS (ext4) volume | CrashLoopBackOff: "Found directory …/lost+found" | Log dir in a subfolder of the mount (`/var/lib/kafka/data/logs`) |
+| StatefulSet spec changed while its pod crash-loops | Rolling update never replaces the broken pod | Delete the pod by hand (forced rollback); the PVC is kept |
+| Two replicas on the same node | One node failure takes the whole service down | `topologySpreadConstraints` across hostname/zone (next step) |
+| Latency measured from the laptop to us-west-2 | p50 ≈ 85 ms vs 1.4 ms locally (internet + NLB) | Run the load generator inside AWS to measure the service itself |
 
 ---
 
@@ -383,8 +387,8 @@ Local hardware will not reach 10,000 RPS; record what you actually measure and e
 | 4 | OpenTelemetry + Grafana | ✅ | `grafana/otel-lgtm` 0.30.0 in compose; OTel Java agent 2.31.1 (downloaded by Maven, attached by `spring-boot:run`); end-to-end trace `POST /events → publish → process`; custom metrics (SSE clients, delivery latency, delivered/replayed); dashboard as code in `docs/grafana-dashboard.json`. First local numbers: delivery p50 ≈ 10 ms, p99 ≈ 25 ms. |
 | 5 | Docker + kind + HPA | ✅ | Multi-stage Dockerfile with Spring Boot layers (app layer ≈ 41 kB, image 180 MB compressed), compose profile `app`; kind cluster + metrics-server; manifests in `src/k8s` (Kafka StatefulSet + PVC, Deployment with startup/readiness/liveness probes, non-root + read-only FS, NodePort Service, HPA). Verified: fan-out across pods, pod kill → state rebuilt from Kafka, HPA 2 → 6 → 2 under in-cluster load. |
 | 6 | k6 load test + tuning | ✅ | Open-model k6 profiles (smoke/baseline/stress), app limited to 1 vCPU/768 MiB. Found JSON serialization as the bottleneck → pre-rendered snapshot cache with ETag/Cache-Control (ADR 0003): +82% throughput, 0% ingest errors under overload. Virtual threads measured and rejected (POST p99 2.5× worse when CPU-bound). gzip pre-compressed: −78% bytes. Results in `docs/RESULTS.md`. Took well over the 1-hour budget. |
-| 7 | Terraform (plan only) | ✅ | AWS CLI moved from root keys to an IAM user (to do before Day 8: delete root access keys, MFA on root, $10 budget alarm). `src/infra`: VPC module ~> 6.0, **EKS Auto Mode** (module ~> 21.0, K8s 1.36, API restricted to my IP, metrics-server add-on), ECR, optional MSK Serverless (off). `terraform plan`: 57 to add. Day 8 prepared: `src/k8s/eks` overlay (gp3 StorageClass, NLB, in-cluster LGTM, ECR image, amd64), `docs/RUNBOOK-EKS.md`, ADR 0004. |
-| 8 | EKS deploy, smoke, destroy, README | ☐ | |
+| 7 | Terraform (plan only) | ✅ | AWS CLI moved from root credentials to an IAM user; MFA on root and a $10 budget alarm in place (recommended: confirm `AccountAccessKeysPresent = 0`). `src/infra`: VPC module ~> 6.0, **EKS Auto Mode** (module ~> 21.0, K8s 1.36, API restricted to my IP, metrics-server add-on), ECR, optional MSK Serverless (off). `terraform plan`: 57 to add. Day 8 prepared: `src/k8s/eks` overlay (gp3 StorageClass, NLB, in-cluster LGTM, ECR image, amd64), `docs/RUNBOOK-EKS.md`, ADR 0004. |
+| 8 | EKS deploy, smoke, destroy, README | ✅ | ≈ 42 min of cloud time (apply 11:02 → destroy verified 11:45). Auto Mode launched 2 × c7i-flex.large in 2 AZs; all pods 1/1; k6 smoke through the public NLB: 0% errors, GET p50 85 ms (internet path from Mexico). Fixed on the fly: Kafka vs `lost+found` (log dir subfolder) and a stuck StatefulSet rollout (delete the pod). Verified nothing left running. |
 
 ---
 

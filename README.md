@@ -4,7 +4,8 @@
 
 **Solution:** a streaming platform for live sports **event data** (scores, play-by-play, match state) built with Java / Spring Boot, Apache Kafka and Kubernetes (AWS EKS), observable end to end with OpenTelemetry. Events are ingested over HTTP, stored in Kafka and pushed to clients in real time with Server-Sent Events (SSE). The service scales horizontally: every instance receives every event and serves its own connected clients.
 
-**Impact (measured locally, one pod = 1 vCPU):** event delivery p99 ≈ **10 ms** (POST → SSE push) at normal load; a CQRS-style pre-rendered snapshot raised read capacity **+82%** (808 → ≈1,480 req/s per pod), eliminated ingest errors under overload, and gzip cut bandwidth **−78%**; scales horizontally (HPA 2 → 6 pods verified on Kubernetes). Full results in [`docs/RESULTS.md`](docs/RESULTS.md); EKS numbers pending (Day 8).
+**Impact (measured locally, one pod = 1 vCPU):** event delivery p99 ≈ **10 ms** (POST → SSE push) at normal load; a CQRS-style pre-rendered snapshot raised read capacity **+82%** (808 → ≈1,480 req/s per pod), eliminated ingest errors under overload, and gzip cut bandwidth **−78%**; scales horizontally (HPA 2 → 6 pods verified on Kubernetes). Deployed to **AWS EKS** (Terraform, Auto Mode) and smoke/load-tested through a public NLB with 0% errors, then torn down
+in the same session (≈ 42 min of cloud time). Full results in [`docs/RESULTS.md`](docs/RESULTS.md).
 
 **Technologies:** Java 21, Spring Boot 4, Apache Kafka (KRaft), Docker, Kubernetes (kind / AWS EKS), Terraform, OpenTelemetry, Grafana, k6, JUnit 5, Testcontainers.
 
@@ -23,7 +24,7 @@
 | 4. OpenTelemetry observability | ✅ |
 | 5. Containers + local Kubernetes (kind) with autoscaling | ✅ |
 | 6. Load testing and tuning (k6) | ✅ |
-| 7–8. Terraform + deployment to AWS EKS | ⏳ |
+| 7–8. Terraform + deployment to AWS EKS | ✅ |
 
 ## Architecture
 
@@ -162,7 +163,7 @@ Integration tests start their own Kafka container — `docker compose` is not ne
 
 ## Cloud deployment (AWS)
 
-Terraform in `src/infra` (Day 7, planned: 57 resources): VPC with private/public subnets and a single NAT gateway,
+Terraform in `src/infra` (57 resources; applied, tested and destroyed on Day 8): VPC with private/public subnets and a single NAT gateway,
 **EKS Auto Mode** (Kubernetes 1.36; nodes, EBS storage and load balancers managed by AWS — see
 [ADR 0004](docs/adr/0004-eks-auto-mode.md)), ECR, and an optional, disabled MSK Serverless. The Kubernetes manifests
 reuse the kind ones through an overlay (`src/k8s/eks`: gp3 StorageClass, NLB, in-cluster LGTM, image from ECR).
@@ -229,13 +230,18 @@ Local measurements (laptop, 1 vCPU per pod, k6 on the same host); methodology, a
 
 ## Takeaways
 
-*To be completed at the end of the project with measured results.*
-
-- Built a horizontally scalable event-streaming service with Spring Boot and Kafka.
-- Applied low-latency delivery techniques (SSE, producer tuning, fail-fast).
-- Used OpenTelemetry to monitor and optimize system performance.
-- Deployed and operated the application on Kubernetes (kind locally, EKS on AWS).
-- Integrated Kafka for real-time event delivery with ordering guarantees.
+- Built a horizontally scalable event-streaming service with Spring Boot and Kafka: ordering per match
+  (key = `matchId`), fan-out to every pod (one consumer group per instance), state rebuilt by replaying the topic.
+- Kept end-to-end delivery (POST → SSE push) at p99 ≈ 10 ms locally, with fail-fast ingest (`503` + `Retry-After`)
+  when Kafka is unavailable.
+- Used OpenTelemetry (Java agent + custom metrics) to trace a goal from HTTP through Kafka to the consumer, and
+  load tests (k6, open model) to find the real bottleneck: per-request JSON serialization. A pre-rendered, cacheable
+  snapshot (CQRS read model, ETag, gzip) gave +82% capacity and −78% bandwidth.
+- Measured before deciding: virtual threads and a forced G1 GC were tested and **rejected** with data; the pod was
+  resized from measurements (500m CPU request, guaranteed memory, explicit Serial GC).
+- Deployed to Kubernetes locally (kind, HPA 2 → 6) and on AWS (Terraform, EKS Auto Mode, ECR, NLB), then destroyed the
+  environment in the same session — fixing two real cloud issues on the way (Kafka vs `lost+found` on EBS, a stuck
+  StatefulSet rollout).
 
 ## Learning path
 
