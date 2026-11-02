@@ -56,11 +56,35 @@ Data transferred during the run: 20.1 GB (#1), 36.7 GB (#2a), **7.9 GB (#4)**.
 4. **gzip cut bandwidth by 78% but not CPU.** Pre-compressed once per change (4.7× smaller: UUID event ids compress poorly). Throughput stayed at ≈1,480 req/s with the CPU at 100%: the remaining limit is the fixed per-request cost (HTTP parsing, MVC dispatch, OTel instrumentation of every request).
 5. **Heap was never the problem** (tenured gen 130–240 MiB of ≈576 MiB max), and the JVM CPU metric was more reliable than eyeballing `docker stats`.
 
+## Pod sizing revisited (2026-11-02)
+
+The initial pod resources were estimates (CPU request 250m, limit 1; memory 512/768 Mi; heap 75%; GC chosen by the JVM).
+The measurements showed the CPU request was below real use (0.3–0.5 cores at 300 req/s) and that the JVM picked the
+**Serial GC** (fewer than 2 CPUs). The pod was resized from data — **CPU request 500m, no CPU limit, memory request =
+limit = 768 Mi, heap 65%** — and the GC was tested before fixing it explicitly.
+
+Same-day baseline (300 GET/s + 20 POST/s), final code (snapshot cache + gzip), 1 CPU / 768 MiB:
+
+| GC | GET p50 | GET p95 | GET p99 | GET max | POST p50 | POST p95 | POST p99 | POST max | Errors |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| G1 (forced) | 1.4 ms | 20.0 ms | 57.1 ms | 398 ms | 8.2 ms | 32.2 ms | 74.8 ms | 181 ms | 0% |
+| **Serial (final)** | **1.4 ms** | **5.3 ms** | **43.0 ms** | **101 ms** | **8.0 ms** | **35.1 ms** | **46.8 ms** | **99 ms** | **0%** |
+
+Stress with G1 served 1,380 req/s (vs 1,484 req/s for run #4 with Serial), but that comparison crosses days and is
+**not conclusive**.
+
+- **Serial GC kept, now explicit** (`-XX:+UseSerialGC`): on one core, G1's concurrent work competes with requests. The
+  JVM's default was the right choice for this container size; the flag stops it from changing silently on nodes with more CPUs.
+- **Cross-day variance is large.** Today's Serial baseline is slower than Saturday's (GET p99 43 vs 3.7–17.5 ms) with
+  equivalent or better code; likely environment (cold boot, a much larger topic to replay at startup — ≈15K records —,
+  other host load). Only same-day comparisons are used for decisions.
+- **Final configuration meets every target with margin:** p99 ≤ 47 ms vs the 300 ms target, 0% errors.
+
 ## Capacity of one pod (1 vCPU)
 
 | | Value |
 | --- | --- |
-| Within SLO (p99 < 300 ms) | **Verified at 300 req/s** (+20 writes/s) with large headroom (p99 ≤ 17.5 ms, CPU 30–50%) |
+| Within SLO (p99 < 300 ms) | **Verified at 300 req/s** (+20 writes/s) with large headroom: final configuration GET p99 43 ms, POST p99 47 ms (earlier runs: ≤ 17.5 ms), CPU 30–50% |
 | Maximum served under overload | **≈ 1,480 req/s** of `GET /stream` at 100% CPU (latency in seconds, but 0% errors) |
 | Knee of the curve | Between 300 and ≈1,500 req/s; not isolated (the stress ramp has no per-step breakdown) — see next steps |
 

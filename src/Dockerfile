@@ -50,8 +50,17 @@ COPY --from=extract /extract/extracted/application/ ./
 # OpenTelemetry Java agent (downloaded by Maven in the build stage).
 COPY --from=build /workspace/target/otel/opentelemetry-javaagent.jar /otel/opentelemetry-javaagent.jar
 
-# JVM: size the heap from the container memory limit; attach the OTel agent.
-ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75 -javaagent:/otel/opentelemetry-javaagent.jar"
+# JVM:
+# - Heap = 65% of the container memory limit, leaving room for non-heap memory (metaspace,
+#   code cache, thread stacks, network buffers, OTel agent) in small containers (< 1 GiB).
+# - Serial GC explicitly. Measured on Day 6 (docs/RESULTS.md), same-day baseline on 1 CPU with a
+#   ~250 MiB heap: G1 was worse than Serial (GET p99 57 vs 43 ms, max 398 vs 101 ms; POST p99
+#   75 vs 47 ms): G1's concurrent work competes with requests for the single core. Set
+#   explicitly so the GC does not change silently when the pod sees more CPUs (no CPU limit on
+#   Kubernetes).
+#   Revisit (G1/ZGC) if the pod gets >= 2 dedicated CPUs or a multi-GB heap.
+# - The OTel Java agent.
+ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=65 -XX:+UseSerialGC -javaagent:/otel/opentelemetry-javaagent.jar"
 
 # OTel defaults; the endpoint and environment are set by docker compose / Kubernetes.
 ENV OTEL_SERVICE_NAME=streaming-service \

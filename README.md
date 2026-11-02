@@ -191,7 +191,7 @@ Go-live checklist: EKS cluster active, Kafka healthy, pods ready, load test and 
 | Metric | Target | How to measure | Result |
 | --- | --- | --- | --- |
 | Snapshot throughput (`GET /stream`) | Max sustained RPS per pod | k6 + Grafana | ≈1,480 req/s served at saturation (1 vCPU); was 808 before the snapshot cache |
-| Latency | p95 < 200 ms, p99 < 300 ms | k6 summary + OTel histogram | ✅ at 300 req/s: GET p99 3.7–17.5 ms, POST p99 9–26 ms |
+| Latency | p95 < 200 ms, p99 < 300 ms | k6 summary + OTel histogram | ✅ at 300 req/s (final config): GET p95 5.3 / p99 43 ms, POST p95 35 / p99 47 ms |
 | Event delivery latency (produce → SSE) | p99 < 200 ms | `streaming.event.delivery_latency` | ✅ p99 ≈ 10 ms at normal load |
 | Error rate | < 1% (stretch < 0.1%) | k6 `http_req_failed` | ✅ 0% at normal load; 0% under overload after the cache (0.93% before) |
 | Saturation point | RPS where p99 > 300 ms | Ramp test | Between 300 and ≈1,500 req/s per pod (knee not isolated yet) |

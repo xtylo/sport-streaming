@@ -67,13 +67,19 @@ spec:
                 name: streaming-otel
                 optional: true
 
+          # Sized from the Day 6 measurements (docs/RESULTS.md):
+          # - CPU request = typical use at the expected load (0.3–0.5 cores at 300 req/s).
+          #   The scheduler reserves it and the HPA's 60% target is relative to it.
+          # - No CPU limit: avoids CFS throttling; the pod may burst on JVM start/JIT.
+          # - Memory request = limit ("Guaranteed" memory): the JVM rarely returns memory, so
+          #   reserving less than it can use would overcommit the node.
+          #   Heap = 65% of the limit (Dockerfile); the rest is metaspace, threads, buffers, agent.
           resources:
             requests:
-              cpu: 250m       # the HPA's 60% target is relative to this request
-              memory: 512Mi
+              cpu: 500m
+              memory: 768Mi
             limits:
-              cpu: "1"
-              memory: 768Mi   # heap = 75% of this (MaxRAMPercentage in the Dockerfile)
+              memory: 768Mi
 
           # Slow start (JVM + Kafka replay): liveness/readiness only begin after startup succeeds.
           startupProbe:

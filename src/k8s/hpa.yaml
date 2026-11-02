@@ -1,4 +1,4 @@
-# Horizontal Pod Autoscaler: adds pods when average CPU > 60% of the request (250m).
+# Horizontal Pod Autoscaler: adds pods when average CPU > 60% of the request (500m → 300m).
 # Needs metrics-server. Max 6 keeps a laptop alive; on EKS the max is sized to the nodes.
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler

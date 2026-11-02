@@ -363,6 +363,9 @@ Local hardware will not reach 10,000 RPS; record what you actually measure and e
 | `docker stats` read by eye | CPU looked like 30–60% while the JVM metric showed ≈100% | Trust the continuous JVM CPU metric in Grafana |
 | Virtual threads on a CPU-bound service | No throughput gain; POST p99 2.5× worse (Tomcat's 200 threads were implicit admission control) | Keep off, or add an explicit bulkhead/concurrency limit |
 | Run-to-run variance on a shared laptop | Same config: GET p50 298 ms vs 90 ms | Repeat runs; only trust large differences |
+| Pod resources guessed, not measured | CPU request 250m vs 0.3–0.5 cores real use (HPA % meaningless, node overcommitted); 1 CPU limit made the JVM pick the Serial GC | Size from load tests: CPU request = typical use, no CPU limit, memory request = limit for the JVM, heap 65% |
+| Forcing G1 on 1 CPU | Worse tail latency than Serial (same-day GET p99 57 vs 43 ms) | Keep `-XX:+UseSerialGC` explicit for 1-core pods; revisit with ≥ 2 dedicated CPUs |
+| Comparing runs from different days | Environment variance bigger than the effect measured (G1 looked 3× worse vs Saturday, 1.3× vs same day) | Compare only same-day, same-environment runs |
 
 ---
 

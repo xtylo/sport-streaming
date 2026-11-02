@@ -76,12 +76,15 @@ services:
         condition: service_healthy
       lgtm:
         condition: service_started
-    # Same resources as one Kubernetes pod (src/k8s/deployment.yaml limits), so load tests
-    # against this container measure the capacity of ONE pod.
+    # Load-test envelope for ONE pod: 768M like the pod (request = limit), and a fixed 1 CPU so
+    # results are comparable across runs (in Kubernetes the pod has a 500m request and no CPU
+    # limit; without a limit here the container would use every core of the laptop).
     deploy:
       resources:
         limits:
           cpus: "1"
+          memory: 768M
+        reservations:
           memory: 768M
 
   # Optional: LocalStack for AWS APIs that the free tier supports (S3, IAM, ...).
